@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  .print-area {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  body {
+    font-size: 12px;
+  }
+}
