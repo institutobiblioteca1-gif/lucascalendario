@@ -94,7 +94,20 @@ export default function Calendario() {
     return aulas;
   }, [aulas, viewMode, selectedTurmaId, selectedProfessorId]);
 
-  // Group by date
+  // Feriados/eventos relevantes para o filtro atual (mesma regra usada no gerador:
+  // abrangência "Todas" sempre conta, "Específica" só conta para a turma selecionada)
+  const relevantFeriados = useMemo(() => {
+    const turmaId = viewMode === 'turma' ? selectedTurmaId : '';
+    return feriados.filter(f => f.abrangencia === 'Todas' || (!!turmaId && f.turma_id === turmaId));
+  }, [feriados, viewMode, selectedTurmaId]);
+
+  const relevantEventos = useMemo(() => {
+    const turmaId = viewMode === 'turma' ? selectedTurmaId : '';
+    return eventos.filter(e => e.abrangencia === 'Todas' || (!!turmaId && e.turma_id === turmaId));
+  }, [eventos, viewMode, selectedTurmaId]);
+
+  // Group by date — inclui também datas de feriados/eventos sem nenhuma aula,
+  // para que o feriado/evento apareça no calendário mesmo em dias sem aula.
   const groupedByDate = useMemo(() => {
     const map = new Map<string, AulaDetalhada[]>();
     filteredAulas.forEach(a => {
@@ -102,8 +115,22 @@ export default function Calendario() {
       list.push(a);
       map.set(a.data, list);
     });
+    relevantFeriados.forEach(f => {
+      if (!map.has(f.data)) map.set(f.data, []);
+    });
+    relevantEventos.forEach(ev => {
+      let d = ev.data_inicio;
+      let guard = 0;
+      while (d <= ev.data_fim && guard < 366) {
+        if (!map.has(d)) map.set(d, []);
+        const next = new Date(d + 'T00:00:00');
+        next.setDate(next.getDate() + 1);
+        d = next.toISOString().slice(0, 10);
+        guard += 1;
+      }
+    });
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filteredAulas]);
+  }, [filteredAulas, relevantFeriados, relevantEventos]);
 
   function formatDateBR(dateStr: string): string {
     return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR');
@@ -115,11 +142,11 @@ export default function Calendario() {
   }
 
   function getFeriadoForDate(dateStr: string): Feriado | undefined {
-    return feriados.find(f => f.data === dateStr);
+    return relevantFeriados.find(f => f.data === dateStr);
   }
 
   function getEventosForDate(dateStr: string): Evento[] {
-    return eventos.filter(e => dateStr >= e.data_inicio && dateStr <= e.data_fim);
+    return relevantEventos.filter(e => dateStr >= e.data_inicio && dateStr <= e.data_fim);
   }
 
   function handlePrint() {
@@ -145,8 +172,8 @@ export default function Calendario() {
       title,
       subtitle,
       institutionName: config?.nome_instituicao || 'IFITEO',
-      feriados,
-      eventos,
+      feriados: relevantFeriados,
+      eventos: relevantEventos,
     });
   }
 
@@ -165,7 +192,7 @@ export default function Calendario() {
         description="Visualize o calendário gerado por turma, professor ou geral"
         action={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={handleDownloadPdf} disabled={filteredAulas.length === 0}>
+            <Button variant="secondary" onClick={handleDownloadPdf} disabled={groupedByDate.length === 0}>
               <FileDown className="w-4 h-4" />
               Baixar PDF
             </Button>
@@ -213,7 +240,7 @@ export default function Calendario() {
         </div>
       </Card>
 
-      {filteredAulas.length === 0 ? (
+      {groupedByDate.length === 0 ? (
         <Card>
           <EmptyState
             icon={<CalendarRange className="w-8 h-8" />}
@@ -255,20 +282,26 @@ export default function Calendario() {
 
                 {/* Aulas */}
                 <div className="divide-y divide-slate-50">
-                  {aulasDoDia.map(a => (
-                    <div key={a.id} className="px-5 py-3 flex items-center gap-4 hover:bg-slate-50 transition-colors">
-                      <div className="text-xs font-medium text-slate-500 min-w-[100px]">
-                        {a.horario?.hora_inicio} – {a.horario?.hora_fim}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-slate-900 text-sm truncate">{a.disciplina?.nome}</p>
-                        <p className="text-xs text-slate-500">Prof. {a.professor?.nome}</p>
-                      </div>
-                      {viewMode !== 'turma' && (
-                        <Badge color="amber">{a.turma?.nome}</Badge>
-                      )}
+                  {aulasDoDia.length === 0 ? (
+                    <div className="px-5 py-3 text-xs text-slate-400 italic">
+                      Sem aulas neste dia
                     </div>
-                  ))}
+                  ) : (
+                    aulasDoDia.map(a => (
+                      <div key={a.id} className="px-5 py-3 flex items-center gap-4 hover:bg-slate-50 transition-colors">
+                        <div className="text-xs font-medium text-slate-500 min-w-[100px]">
+                          {a.horario?.hora_inicio} – {a.horario?.hora_fim}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-slate-900 text-sm truncate">{a.disciplina?.nome}</p>
+                          <p className="text-xs text-slate-500">Prof. {a.professor?.nome}</p>
+                        </div>
+                        {viewMode !== 'turma' && (
+                          <Badge color="amber">{a.turma?.nome}</Badge>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </Card>
             );
