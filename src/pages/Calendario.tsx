@@ -45,21 +45,35 @@ export default function Calendario() {
   const [selectedProfessorId, setSelectedProfessorId] = useState('');
 
   useEffect(() => {
-    async function load() {
-      const [a, t, p, f, e, c] = await Promise.all([
-        supabase
+    async function fetchAllAulas(): Promise<AulaDetalhada[]> {
+      const pageSize = 1000;
+      let from = 0;
+      let all: AulaDetalhada[] = [];
+      while (true) {
+        const { data, error } = await supabase
           .from('aulas')
           .select('*, horario:horarios(*), turma:turmas(*), disciplina:disciplinas(*), professor:professores(*)')
           .order('data')
           .order('horario_id')
-          .limit(10000),
+          .range(from, from + pageSize - 1);
+        if (error || !data || data.length === 0) break;
+        all = all.concat(data as AulaDetalhada[]);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return all;
+    }
+
+    async function load() {
+      const [aulasData, t, p, f, e, c] = await Promise.all([
+        fetchAllAulas(),
         supabase.from('turmas').select('*').order('nome'),
         supabase.from('professores').select('*').order('nome'),
         supabase.from('feriados').select('*').order('data'),
         supabase.from('eventos').select('*').order('data_inicio'),
         supabase.from('configuracoes').select('*').maybeSingle(),
       ]);
-      setAulas((a.data as AulaDetalhada[]) || []);
+      setAulas(aulasData || []);
       setTurmas(t.data || []);
       setProfessores(p.data || []);
       setFeriados(f.data || []);
