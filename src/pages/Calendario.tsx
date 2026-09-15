@@ -51,7 +51,8 @@ export default function Calendario() {
           .from('aulas')
           .select('*, horario:horarios(*), turma:turmas(*), disciplina:disciplinas(*), professor:professores(*)')
           .order('data')
-          .order('horario_id'),
+          .order('horario_id')
+          .limit(10000),
         supabase.from('turmas').select('*').order('nome'),
         supabase.from('professores').select('*').order('nome'),
         supabase.from('feriados').select('*').order('data'),
