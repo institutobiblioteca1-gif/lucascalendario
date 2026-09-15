@@ -34,9 +34,33 @@ export function generatePdfReport(options: ReportOptions): void {
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 14;
 
-  const sorted = [...options.aulas].sort((a, b) =>
-    `${a.data}|${a.horario?.hora_inicio || ''}`.localeCompare(`${b.data}|${b.horario?.hora_inicio || ''}`),
-  );
+  // Datas com aula, agrupadas
+  const aulasByDate = new Map<string, ReportAula[]>();
+  options.aulas.forEach(aula => {
+    const list = aulasByDate.get(aula.data) || [];
+    list.push(aula);
+    aulasByDate.set(aula.data, list);
+  });
+  aulasByDate.forEach(list => {
+    list.sort((a, b) => (a.horario?.hora_inicio || '').localeCompare(b.horario?.hora_inicio || ''));
+  });
+
+  // Datas de feriados/eventos entram mesmo sem nenhuma aula naquele dia,
+  // para que apareçam no relatório impresso.
+  const allDates = new Set<string>(aulasByDate.keys());
+  options.feriados.forEach(f => allDates.add(f.data));
+  options.eventos.forEach(ev => {
+    let d = ev.data_inicio;
+    let guard = 0;
+    while (d <= ev.data_fim && guard < 366) {
+      allDates.add(d);
+      const next = new Date(`${d}T00:00:00`);
+      next.setDate(next.getDate() + 1);
+      d = next.toISOString().slice(0, 10);
+      guard += 1;
+    }
+  });
+  const sortedDates = [...allDates].sort();
 
   // Header
   doc.setFontSize(9);
@@ -52,7 +76,6 @@ export function generatePdfReport(options: ReportOptions): void {
   doc.text(options.subtitle, margin, 16 + instLines.length * 5 + 10);
 
   let previousMonth = '';
-  let previousDate = '';
   let isFirstTable = true;
   let cursorY = 16 + instLines.length * 5 + 16;
 
@@ -109,36 +132,40 @@ export function generatePdfReport(options: ReportOptions): void {
     monthRows.length = 0;
   }
 
-  sorted.forEach(aula => {
-    const info = dateInfo(aula.data);
+  sortedDates.forEach(date => {
+    const info = dateInfo(date);
     if (info.monthKey !== previousMonth) {
       flushMonth();
       currentMonthLabel = info.month;
       previousMonth = info.monthKey;
-      previousDate = '';
     }
 
-    const feriado = options.feriados.find(f => f.data === aula.data);
-    const evento = options.eventos.find(e => aula.data >= e.data_inicio && aula.data <= e.data_fim);
+    const feriado = options.feriados.find(f => f.data === date);
+    const evento = options.eventos.find(e => date >= e.data_inicio && date <= e.data_fim);
     const description = evento?.nome || feriado?.descricao || '';
-    const subject = description
-      ? `${aula.disciplina?.nome || '—'} — ${description}`
-      : aula.disciplina?.nome || '—';
-    const firstOfDate = previousDate !== aula.data;
+    const dayAulas = aulasByDate.get(date) || [];
 
-    monthRows.push([
-      firstOfDate ? info.day : '',
-      firstOfDate ? info.weekday : '',
-      subject,
-      aula.professor?.nome || '—',
-    ]);
-
-    previousDate = aula.data;
+    if (dayAulas.length === 0) {
+      // Dia sem aula, mas com feriado/evento registrado — ainda assim aparece no relatório.
+      monthRows.push([info.day, info.weekday, description || '—', '']);
+    } else {
+      dayAulas.forEach((aula, idx) => {
+        const subject = description
+          ? `${aula.disciplina?.nome || '—'} — ${description}`
+          : aula.disciplina?.nome || '—';
+        monthRows.push([
+          idx === 0 ? info.day : '',
+          idx === 0 ? info.weekday : '',
+          subject,
+          aula.professor?.nome || '—',
+        ]);
+      });
+    }
   });
 
   flushMonth();
 
-  if (sorted.length === 0) {
+  if (sortedDates.length === 0) {
     doc.setFontSize(11);
     doc.setTextColor(100, 100, 100);
     doc.text('Nenhuma aula cadastrada no calendário.', margin, cursorY + 6);
